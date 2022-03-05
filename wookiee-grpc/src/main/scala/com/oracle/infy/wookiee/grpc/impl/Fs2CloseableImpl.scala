@@ -1,8 +1,7 @@
 package com.oracle.infy.wookiee.grpc.impl
 
 import cats.data.EitherT
-import cats.effect.concurrent.Deferred
-import cats.effect.{Concurrent, IO}
+import cats.effect.{Concurrent, Deferred, IO}
 import cats.implicits._
 import com.oracle.infy.wookiee.grpc.contract.StreamContract.StreamError
 import com.oracle.infy.wookiee.grpc.contract.{CloseableStreamContract, StreamContract}

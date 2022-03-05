@@ -1,10 +1,9 @@
 package com.oracle.infy.wookiee.grpc.settings
 
 import cats.data.NonEmptyList
-import cats.effect.concurrent.Ref
-import cats.effect.{Blocker, ContextShift, IO}
+import cats.effect.std.Queue
+import cats.effect.{IO, Ref}
 import com.oracle.infy.wookiee.grpc.model.{Host, HostMetadata}
-import fs2.concurrent.Queue
 import io.grpc.ServerServiceDefinition
 import org.apache.curator.framework.CuratorFramework
 
@@ -42,7 +41,7 @@ object ServerSettings {
       bossThreads: Int,
       workerThreads: Int,
       curatorFramework: CuratorFramework
-  )(implicit cs: ContextShift[IO]): ServerSettings =
+  ): ServerSettings =
     apply(
       discoveryPath,
       host,
@@ -68,7 +67,7 @@ object ServerSettings {
       bossThreads: Int,
       workerThreads: Int,
       curatorFramework: CuratorFramework
-  )(implicit cs: ContextShift[IO], blocker: Blocker): ServerSettings =
+  ): ServerSettings =
     apply(
       discoveryPath,
       port,
@@ -95,7 +94,7 @@ object ServerSettings {
       curatorFramework: CuratorFramework,
       serverServiceDefinition: (ServerServiceDefinition, Option[ServiceAuthSettings]),
       otherServiceDefinitions: (ServerServiceDefinition, Option[ServiceAuthSettings])*
-  )(implicit cs: ContextShift[IO]): ServerSettings =
+  ): ServerSettings =
     ServerSettings(
       discoveryPath,
       NonEmptyList(serverServiceDefinition, otherServiceDefinitions.toList),
@@ -124,12 +123,12 @@ object ServerSettings {
       curatorFramework: CuratorFramework,
       serverServiceDefinition: (ServerServiceDefinition, Option[ServiceAuthSettings]),
       otherServiceDefinitions: (ServerServiceDefinition, Option[ServiceAuthSettings])*
-  )(implicit cs: ContextShift[IO], blocker: Blocker): ServerSettings = {
+  ): ServerSettings = {
     val host = {
       for {
-        address <- cs.blockOn(blocker)(IO {
+        address <- IO.blocking {
           InetAddress.getLocalHost.getCanonicalHostName
-        })
+        }
         host = Host(0, address, port, HostMetadata(0, quarantined = false))
       } yield host
     }

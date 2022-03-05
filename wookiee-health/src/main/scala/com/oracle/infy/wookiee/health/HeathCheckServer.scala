@@ -20,9 +20,6 @@ object HeathCheckServer extends Serde {
       healthF: () => IO[WookieeHealth],
       executionContext: ExecutionContext,
       additionalRoutes: Option[HttpRoutes[IO]]
-  )(
-      implicit timer: Timer[IO],
-      cs: ContextShift[IO]
   ): Stream[IO, ExitCode] = {
 
     val routes = additionalRoutes match {

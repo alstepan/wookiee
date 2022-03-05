@@ -2,9 +2,10 @@ package com.oracle.infy.wookiee.grpc.impl
 
 import _root_.io.grpc.NameResolver.ResolutionResult
 import cats.data.EitherT
-import cats.effect.concurrent.{Ref, Semaphore}
-import cats.effect.{Blocker, ContextShift, Fiber, IO}
+import cats.effect.std.Semaphore
+import cats.effect.{Fiber, IO, Ref}
 import cats.implicits._
+import cats.effect.unsafe.implicits.global
 import com.oracle.infy.wookiee.grpc.contract.{HostnameServiceContract, ListenerContract}
 import com.oracle.infy.wookiee.grpc.errors.Errors.WookieeGrpcError
 import com.oracle.infy.wookiee.grpc.model.Host
@@ -18,11 +19,11 @@ import java.net.InetSocketAddress
 protected[grpc] class WookieeNameResolver(
     listenerRef: Ref[IO, Option[ListenerContract[IO, Stream]]],
     semaphore: Semaphore[IO],
-    fiberRef: Ref[IO, Option[Fiber[IO, Either[WookieeGrpcError, Unit]]]],
+    fiberRef: Ref[IO, Option[Fiber[IO, Throwable, Either[WookieeGrpcError, Unit]]]],
     hostNameService: HostnameServiceContract[IO, Stream],
     discoveryPath: String,
     serviceAuthority: String
-)(implicit cs: ContextShift[IO], blocker: Blocker, logger: Logger[IO])
+)(implicit logger: Logger[IO])
     extends NameResolver {
 
   override def getServiceAuthority: String = serviceAuthority

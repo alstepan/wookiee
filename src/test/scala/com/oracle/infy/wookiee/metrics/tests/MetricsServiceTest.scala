@@ -1,6 +1,7 @@
 package com.oracle.infy.wookiee.metrics.tests
 
 import cats.effect.IO
+import cats.effect.unsafe.implicits.global
 import com.oracle.infy.wookiee.functional.metrics.WookieeMetricsService
 import com.oracle.infy.wookiee.functional.metrics.core.WookieeMetricsReporter
 import com.oracle.infy.wookiee.grpc.common.UTestScalaCheck
@@ -48,11 +49,11 @@ object MetricsServiceTest extends UTestScalaCheck {
               histogramCount === Right(1)
             }
         )
-    }.unsafeToFuture()
+    }
 
     Tests {
       test("register metrics and get correct counts") {
-        checkMetricsService.map(assert)
+        checkMetricsService.map(assert).unsafeRunSync()
       }
     }
   }

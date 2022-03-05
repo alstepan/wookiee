@@ -1,6 +1,7 @@
 package com.oracle.infy.wookiee.metrics.tests
 
 import cats.effect.IO
+import cats.effect.unsafe.implicits.global
 import com.codahale.metrics.MetricRegistry
 import com.oracle.infy.wookiee.functional.metrics.core.WookieeMetrics
 import com.oracle.infy.wookiee.functional.metrics.impl.WookieeMetricsImpl

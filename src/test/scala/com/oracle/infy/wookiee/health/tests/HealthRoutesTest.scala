@@ -1,6 +1,8 @@
 package com.oracle.infy.wookiee.health.tests
 
-import cats.effect.{ContextShift, IO}
+import cats.effect.IO
+import cats.effect.implicits._
+import cats.effect.unsafe.implicits.global
 import com.oracle.infy.wookiee.grpc.common.UTestScalaCheck
 import com.oracle.infy.wookiee.health.HeathCheckServer
 import com.oracle.infy.wookiee.health.json.Serde
@@ -8,6 +10,7 @@ import com.oracle.infy.wookiee.health.model.{Critical, Normal, State, WookieeHea
 import com.oracle.infy.wookiee.grpc.utils.implicits._
 import org.http4s._
 import org.http4s.implicits._
+import utest.framework.ExecutionContext.RunNow
 import utest.{Tests, test}
 
 import scala.concurrent.{ExecutionContext, Future}
@@ -28,7 +31,7 @@ object HealthRoutesTest extends UTestScalaCheck with Serde {
       statusCheck && bodyCheck
     }).unsafeToFuture()
 
-  def tests()(implicit cs: ContextShift[IO], executionContext: ExecutionContext): Tests = {
+  def tests(): Tests = {
 
     val health = WookieeHealth(Normal, "Thunderbirds are GO", Map("ZK" -> WookieeHealth(Critical, "no host found")))
     val response: IO[Response[IO]] = HeathCheckServer

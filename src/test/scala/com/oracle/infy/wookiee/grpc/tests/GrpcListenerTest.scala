@@ -2,19 +2,20 @@ package com.oracle.infy.wookiee.grpc.tests
 
 import cats.Monad
 import cats.data.EitherT
-import cats.effect.concurrent.Deferred
-import cats.effect.{Concurrent, Sync}
+import cats.effect.std.Queue
+import cats.effect.{Async, Concurrent, Deferred, Sync}
 import cats.implicits.{catsSyntaxEq => _, _}
+import cats.effect.implicits._
 import com.oracle.infy.wookiee.grpc.common.{HostGenerator, UTestScalaCheck}
 import com.oracle.infy.wookiee.grpc.contract.ListenerContract
 import com.oracle.infy.wookiee.grpc.errors.Errors.{UnknownWookieeGrpcError, WookieeGrpcError}
 import com.oracle.infy.wookiee.grpc.model.Host
 import com.oracle.infy.wookiee.grpc.utils.implicits
 import implicits._
-import fs2.concurrent.Queue
 import org.scalacheck.Prop
 import org.scalacheck.Prop.forAll
 import utest.{Tests, test}
+import fs2._
 
 object GrpcListenerTest extends UTestScalaCheck with HostGenerator {
 
@@ -26,7 +27,7 @@ object GrpcListenerTest extends UTestScalaCheck with HostGenerator {
         .toEitherT(e => UnknownWookieeGrpcError(e.getMessage))
   }
 
-  def tests[F[_]: Monad: Sync: Concurrent, S[_[_], _]](
+  def tests[F[_]: Async, S[_[_], _]](
       minSuccessfulRuns: Int,
       factory: (Set[Host] => F[Unit]) => F[(Set[Host] => F[Unit], () => F[Unit], ListenerContract[F, S])]
   )(implicit fToProp: EitherT[F, WookieeGrpcError, Boolean] => Prop): Tests = {
@@ -36,13 +37,12 @@ object GrpcListenerTest extends UTestScalaCheck with HostGenerator {
         for {
           queue <- Queue.unbounded[F, Set[Host]].toEitherT
           c <- factory(hostsFromHostStream => {
-            queue.enqueue1(hostsFromHostStream)
+            queue.offer(hostsFromHostStream)
           }).toEitherT
           (sendHosts, cleanup, listener) = c
           _ <- sendHosts(hosts).toEitherT
           bgRef <- Concurrent[F].start(listener.startListening.value).toEitherT
-          result <- queue
-            .dequeue
+          result <- Stream.fromQueueUnterminated(queue)
             .collectFirst {
               case hostsFromQueue if hostsFromQueue.size === hosts.size => hostsFromQueue
             }
@@ -64,7 +64,7 @@ object GrpcListenerTest extends UTestScalaCheck with HostGenerator {
       forAll { hosts: Set[Host] =>
         for {
           promise <- Deferred[F, Unit].toEitherT
-          c <- factory(_ => promise.complete(())).toEitherT
+          c <- factory(_ => promise.complete(()).map(_ =>())).toEitherT
           (sendHosts, cleanup, listener) = c
           bgRef <- Concurrent[F].start(listener.startListening.value).toEitherT
           _ <- sendHosts(hosts).toEitherT

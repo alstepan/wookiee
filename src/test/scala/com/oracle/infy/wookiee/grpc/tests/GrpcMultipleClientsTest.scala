@@ -1,6 +1,7 @@
 package com.oracle.infy.wookiee.grpc.tests
 
-import cats.effect.{Blocker, ContextShift, IO, Timer}
+import cats.effect.unsafe.implicits.global
+import cats.effect.IO
 import com.oracle.infy.wookiee.grpc.common.UTestScalaCheck
 import com.oracle.infy.wookiee.grpc.model.{Host, HostMetadata}
 import com.oracle.infy.wookiee.grpc.settings.{ChannelSettings, ServerSettings}
@@ -25,9 +26,6 @@ object GrpcMultipleClientsTest extends UTestScalaCheck {
 
   def multipleClientTest(
       implicit implicitEC: ExecutionContext,
-      cs: ContextShift[IO],
-      blocker: Blocker,
-      timer: Timer[IO],
       logger: Logger[IO]
   ): Tests = {
 

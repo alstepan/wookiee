@@ -1,8 +1,9 @@
 package com.oracle.infy.wookiee.grpc.impl
 
 import cats.data.EitherT
-import cats.effect.concurrent.{Ref, Semaphore}
-import cats.effect.{Blocker, Concurrent, ContextShift, IO}
+import cats.effect.{IO, Ref}
+import cats.effect.std.Semaphore
+import cats.effect.unsafe.implicits.global
 import cats.implicits.{catsSyntaxEq => _, _}
 import com.oracle.infy.wookiee.grpc.contract.{CloseableStreamContract, HostnameServiceContract}
 import com.oracle.infy.wookiee.grpc.errors.Errors
@@ -37,13 +38,13 @@ protected[grpc] class ZookeeperHostnameService(
     s: Semaphore[IO],
     closableStream: CloseableStreamContract[IO, Set[Host], Stream],
     pushHosts: Set[Host] => IO[Unit]
-)(implicit blocker: Blocker, cs: ContextShift[IO], concurrent: Concurrent[IO], logger: Logger[IO])
+)(implicit logger: Logger[IO])
     extends HostnameServiceContract[IO, Stream] {
 
   override def shutdown: EitherT[IO, Errors.WookieeGrpcError, Unit] = {
     val closeZKResources = (for {
       cache <- cacheRef.get
-      _ <- cs.blockOn(blocker)(IO(cache.map(_.close()).getOrElse(())))
+      _ <- IO.blocking(cache.map(_.close()).getOrElse(()))
     } yield ())
       .toEitherT(t => UnknownCuratorShutdownError(t.stackTrace): WookieeGrpcError)
 
@@ -69,21 +70,20 @@ protected[grpc] class ZookeeperHostnameService(
 
     val computation = for {
       _ <- logger.info(s"GRPC Service Discovery has started... Looking for services under path $rootPath")
-      cache <- cs.blockOn(blocker)(
-        IO(
+      cache <-
+        IO.blocking(
           CuratorCache
             .build(curator, rootPath)
         )
-      )
-      _ <- cs.blockOn(blocker)(
-        IO(
+
+      _ <-
+        IO.blocking(
           cache
             .listenable()
             .addListener(cacheListener(lock, hasInitialized, state, pushHosts, rootPath))
         )
-      )
       _ <- cacheRef.set(Some(cache))
-      _ <- cs.blockOn(blocker)(IO(cache.start()))
+      _ <- IO.blocking(cache.start())
       _ <- logger.info("GRPC Service Discovery curator cache has started")
     } yield {
       closableStream

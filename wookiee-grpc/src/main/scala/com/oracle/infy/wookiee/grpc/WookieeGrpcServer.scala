@@ -1,13 +1,12 @@
 package com.oracle.infy.wookiee.grpc
 
-import cats.effect.concurrent.Ref
-import cats.effect.{Blocker, ContextShift, Fiber, IO, Timer}
+import cats.effect.std.Queue
+import cats.effect.{Fiber, IO, Ref}
 import com.oracle.infy.wookiee.grpc.impl.BearerTokenAuthenticator
 import com.oracle.infy.wookiee.grpc.impl.GRPCUtils._
 import com.oracle.infy.wookiee.grpc.json.HostSerde
 import com.oracle.infy.wookiee.grpc.model.{Host, HostMetadata}
 import com.oracle.infy.wookiee.grpc.settings.{SSLServerSettings, ServerSettings}
-import fs2.concurrent.Queue
 import org.typelevel.log4cats.Logger
 import io.grpc.netty.shaded.io.grpc.netty.{GrpcSslContexts, NettyServerBuilder}
 import io.grpc.netty.shaded.io.netty.channel.socket.nio.NioServerSocketChannel
@@ -15,6 +14,7 @@ import io.grpc.netty.shaded.io.netty.handler.ssl.{ClientAuth, SslContext, SslCon
 import io.grpc.{Server, ServerInterceptors}
 import org.apache.curator.framework.CuratorFramework
 import org.apache.zookeeper.CreateMode
+import fs2._
 
 import java.io.File
 import scala.util.Try
@@ -22,30 +22,26 @@ import scala.util.Try
 final class WookieeGrpcServer(
     private val server: Server,
     private val curatorFramework: CuratorFramework,
-    private val fiber: Fiber[IO, Unit],
+    private val fiber: Fiber[IO, Throwable, Unit],
     private val loadQueue: Queue[IO, Int],
     private val host: Host,
     private val discoveryPath: String,
     private val quarantined: Ref[IO, Boolean]
-)(
-    implicit cs: ContextShift[IO],
-    logger: Logger[IO],
-    blocker: Blocker
-) {
+)( implicit logger: Logger[IO]) {
 
   def shutdown(): IO[Unit] =
     for {
       _ <- logger.info("Stopping load writing process...")
       _ <- fiber.cancel
       _ <- logger.info("Shutting down gRPC server...")
-      _ <- cs.blockOn(blocker)(IO(server.shutdown()))
+      _ <- IO.blocking(server.shutdown())
     } yield ()
 
   def awaitTermination(): IO[Unit] =
-    cs.blockOn(blocker)(IO(server.awaitTermination()))
+    IO.blocking(server.awaitTermination())
 
   def assignLoad(load: Int): IO[Unit] =
-    loadQueue.enqueue1(load)
+    loadQueue.offer(load)
 
   def enterQuarantine(): IO[Unit] =
     quarantined
@@ -65,16 +61,11 @@ final class WookieeGrpcServer(
 
 object WookieeGrpcServer {
 
-  def start(serverSettings: ServerSettings)(
-      implicit cs: ContextShift[IO],
-      blocker: Blocker,
-      logger: Logger[IO],
-      timer: Timer[IO]
-  ): IO[WookieeGrpcServer] =
+  def start(serverSettings: ServerSettings)(implicit logger: Logger[IO]): IO[WookieeGrpcServer] =
     for {
       host <- serverSettings.host
-      server <- cs.blockOn(blocker)(buildServer(serverSettings, host))
-      _ <- cs.blockOn(blocker)(IO { server.start() })
+      server <- IO.blocking(buildServer(serverSettings, host)).flatten
+      _ <- IO.blocking { server.start() }
       _ <- logger.info("gRPC server started...")
       _ <- logger.info("Registering gRPC server in zookeeper...")
       queue <- serverSettings.queue
@@ -206,8 +197,8 @@ object WookieeGrpcServer {
       curatorFramework: CuratorFramework,
       serverSettings: ServerSettings,
       quarantined: Ref[IO, Boolean]
-  )(implicit timer: Timer[IO], cs: ContextShift[IO], blocker: Blocker, logger: Logger[IO]): IO[Unit] = {
-    val stream = queue.dequeue
+  )(implicit logger: Logger[IO]): IO[Unit] = {
+    val stream = Stream.fromQueueUnterminated(queue)
     stream
       .debounce(serverSettings.loadUpdateInterval)
       .evalTap { load: Int =>
@@ -234,40 +225,35 @@ object WookieeGrpcServer {
       host: Host,
       discoveryPath: String,
       curatorFramework: CuratorFramework
-  )(implicit cs: ContextShift[IO], blocker: Blocker): IO[Unit] =
-    cs.blockOn(blocker) {
-      IO {
+  ): IO[Unit] =
+      IO.blocking {
         val newHost = Host(host.version, host.address, host.port, HostMetadata(load, host.metadata.quarantined))
         curatorFramework
           .setData()
           .forPath(s"$discoveryPath/${host.address}:${host.port}", HostSerde.serialize(newHost))
         ()
       }
-    }
 
   private def assignQuarantine(
       isQuarantined: Boolean,
       host: Host,
       discoveryPath: String,
       curatorFramework: CuratorFramework
-  )(implicit cs: ContextShift[IO], blocker: Blocker): IO[Unit] =
-    cs.blockOn(blocker) {
-      IO {
+  ): IO[Unit] =
+      IO.blocking {
         val newHost = Host(host.version, host.address, host.port, HostMetadata(host.metadata.load, isQuarantined))
         curatorFramework
           .setData()
           .forPath(s"$discoveryPath/${host.address}:${host.port}", HostSerde.serialize(newHost))
         ()
       }
-    }
 
   private def registerInZookeeper(
       discoveryPath: String,
       curator: CuratorFramework,
       host: Host
-  )(implicit cs: ContextShift[IO], blocker: Blocker): IO[Unit] =
-    cs.blockOn(blocker)(
-      IO {
+  ): IO[Unit] =
+      IO.blocking {
         if (Option(curator.checkExists().forPath(discoveryPath)).isEmpty) {
           curator
             .create()
@@ -292,5 +278,4 @@ object WookieeGrpcServer {
           .forPath(path, HostSerde.serialize(host))
         ()
       }
-    )
 }
